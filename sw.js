@@ -1,15 +1,15 @@
 // 앱 껍데기(아이콘/로딩화면)만 저장해두는 서비스 워커입니다.
 // 회원 데이터는 항상 구글 앱스크립트에서 실시간으로 불러오며, 여기에 저장되지 않습니다.
 // 파일을 수정해서 다시 올릴 때는 아래 버전 숫자를 하나 올려주세요 (v1 → v2).
-const CACHE = 'gl-shell-v1';
+const CACHE = 'gl-shell-v2';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/apple-touch-icon.png',
-  './icons/favicon-64.png'
+  './icon-192.png',
+  './icon-512.png',
+  './apple-touch-icon.png',
+  './favicon-64.png'
 ];
 
 self.addEventListener('install', (e) => {
