@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>GL 회원관리</title>
+  <meta name="description" content="매나테크 GL 리더스 그룹 회원 관리 프로그램">
+  <meta name="theme-color" content="#22303C">
+
+  <!-- 앱 설치(PWA) 설정 -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/favicon-64.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GL 회원관리">
+
+  <style>
+    :root{ --bg:#22303C; --gold:#C9962C; }
+    html, body{
+      margin:0; padding:0; height:100%; overflow:hidden; background:var(--bg);
+      font-family:'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
+    }
+    /* 회원관리 앱(구글 앱스크립트)을 화면 전체에 꽉 채워서 보여준다.
+       아이폰 노치/홈바 영역(safe-area)은 피해서 배치한다. */
+    #app{
+      position:fixed;
+      top:env(safe-area-inset-top); bottom:env(safe-area-inset-bottom);
+      left:env(safe-area-inset-left); right:env(safe-area-inset-right);
+      width:calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right));
+      height:calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+      border:0; background:#F4F5F3;
+    }
+
+    /* 로딩 화면 */
+    #splash{
+      position:fixed; inset:0; z-index:10; background:var(--bg);
+      display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+      color:#CFE4E1; font-size:14px; transition:opacity .25s ease;
+    }
+    #splash.is-hidden{ opacity:0; pointer-events:none; }
+    #splash img{ width:112px; height:112px; border-radius:50%; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+    .spinner{
+      width:26px; height:26px; border-radius:50%;
+      border:3px solid rgba(255,255,255,.18); border-top-color:var(--gold);
+      animation:spin .7s linear infinite;
+    }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+    #splashMsg{ text-align:center; line-height:1.6; padding:0 24px; }
+    #splashMsg button{
+      margin-top:10px; padding:9px 18px; border-radius:8px; border:0;
+      background:var(--gold); color:#fff; font-weight:700; font-size:14px; cursor:pointer;
+    }
+
+    /* 처리 중 표시 (저장/삭제 등 버튼을 누른 뒤 새 화면이 올 때까지) */
+    #busy{
+      position:fixed; left:50%; top:calc(14px + env(safe-area-inset-top)); z-index:20;
+      transform:translateX(-50%) translateY(-8px); opacity:0; pointer-events:none;
+      display:flex; align-items:center; gap:10px;
+      background:rgba(34,48,60,.94); color:#fff; padding:9px 16px; border-radius:99px;
+      font-size:13px; box-shadow:0 6px 18px rgba(0,0,0,.25); transition:.18s ease;
+    }
+    #busy.is-active{ opacity:1; transform:translateX(-50%) translateY(0); }
+    #busy .spinner{ width:16px; height:16px; border-width:2px; }
+
+    /* 앱 설치 안내 */
+    #installBar{
+      position:fixed; left:12px; right:12px; z-index:30;
+      bottom:calc(12px + env(safe-area-inset-bottom));
+      max-width:460px; margin:0 auto;
+      display:none; align-items:center; gap:12px;
+      background:#fff; color:#1F2A28; border-radius:14px; padding:12px 14px;
+      box-shadow:0 10px 30px rgba(0,0,0,.28); font-size:13.5px; line-height:1.45;
+    }
+    #installBar.is-active{ display:flex; }
+    #installBar img{ width:40px; height:40px; border-radius:50%; flex:none; }
+    #installBar .txt{ flex:1; min-width:0; }
+    #installBar b{ display:block; font-size:14px; }
+    #installBar button{
+      flex:none; border:0; border-radius:8px; padding:8px 12px; font-weight:700; font-size:13px; cursor:pointer;
+    }
+    #btnInstall{ background:var(--gold); color:#fff; }
+    #btnInstallClose{ background:#EEF0EE; color:#6B7570; }
+  </style>
+</head>
+<body>
+  <div id="splash">
+    <img src="icons/icon-192.png" alt="">
+    <div class="spinner" id="splashSpinner"></div>
+    <div id="splashMsg">회원관리 프로그램을 불러오는 중…</div>
+  </div>
+
+  <div id="busy"><div class="spinner"></div><span>처리 중…</span></div>
+
+  <iframe id="app" name="app" title="GL 회원관리"
+          allow="clipboard-read; clipboard-write"
+          referrerpolicy="no-referrer-when-downgrade"></iframe>
+
+  <div id="installBar">
+    <img src="icons/icon-192.png" alt="">
+    <div class="txt" id="installText"></div>
+    <button type="button" id="btnInstall">설치</button>
+    <button type="button" id="btnInstallClose">닫기</button>
+  </div>
+
+  <script>
+    // ================== 설정 ==================
+    // 구글 앱스크립트 웹앱 주소 (배포 > 웹 앱 URL). 새 버전으로 "새 배포"를 만들어
+    // 주소가 바뀌면 여기만 고치면 됩니다. ("배포 관리"에서 기존 배포를 수정하면 주소가 그대로 유지됩니다.)
+    const EXEC_URL = 'https://script.google.com/macros/s/AKfycbzAWSWOiaz_Y28aLQsnQabln77Re8kD4nKdIN8MYj7zDnuBYUnILvGyApalgyzDT5M/exec';
+
+    // ================== 동작 ==================
+    // 앱스크립트 화면은 아래 iframe 안에 표시됩니다. 앱 안에서 저장/수정/로그인 같은
+    // 버튼을 누르면, 앱스크립트 쪽 코드가 그 내용을 이 페이지로 postMessage 해주고,
+    // 이 페이지가 iframe만 새 화면으로 바꿔줍니다. 그래서 설치된 앱 창이 구글 주소로
+    // 튕겨나가지 않고 항상 "앱" 모양 그대로 유지됩니다.
+    const MY_ORIGIN = location.origin;
+    const frame = document.getElementById('app');
+    const splash = document.getElementById('splash');
+    const busy = document.getElementById('busy');
+    let firstLoad = true;
+    let loadTimer = null;
+
+    function buildUrl(fields) {
+      const qs = new URLSearchParams();
+      fields.forEach(([k, v]) => qs.append(k, v));
+      qs.append('pwa', MY_ORIGIN);
+      return EXEC_URL + '?' + qs.toString();
+    }
+
+    function startLoading() {
+      if (!firstLoad) busy.classList.add('is-active');
+      clearTimeout(loadTimer);
+      loadTimer = setTimeout(() => {
+        if (firstLoad) showError('응답이 늦어지고 있습니다. 인터넷 연결을 확인해 주세요.');
+      }, 30000);
+    }
+
+    function navigate(method, fields) {
+      startLoading();
+      if (method === 'POST') {
+        // 다운라인 업로드처럼 데이터가 큰 경우 - iframe을 대상으로 POST 제출
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = EXEC_URL;
+        form.target = 'app';
+        form.acceptCharset = 'UTF-8';
+        fields.concat([['pwa', MY_ORIGIN]]).forEach(([k, v]) => {
+          const input = document.createElement('input');
+          input.type = 'hidden'; input.name = k; input.value = v;
+          form.appendChild(input);
+        });
+        document.body.appendChild(form);
+        form.submit();
+        form.remove();
+      } else {
+        // GET은 location.replace로 바꿔서 "뒤로가기" 시 같은 저장이 다시 실행되지 않게 한다
+        const url = buildUrl(fields);
+        try { frame.contentWindow.location.replace(url); }
+        catch (e) { frame.src = url; }
+      }
+    }
+
+    // 메시지가 정말 우리 iframe(그 안쪽 구글 샌드박스 프레임 포함)에서 온 것인지 확인
+    function isFromOurFrame(source) {
+      let w = source;
+      for (let i = 0; i < 6 && w; i++) {
+        if (w === frame.contentWindow) return true;
+        if (w === w.parent) break;
+        w = w.parent;
+      }
+      return false;
+    }
+
+    window.addEventListener('message', (e) => {
+      if (!/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.googleusercontent\.com$/i.test(e.origin)) return;
+      if (!isFromOurFrame(e.source)) return;
+      const msg = e.data || {};
+      if (msg.type === 'gl-submit' && Array.isArray(msg.fields)) {
+        const fields = msg.fields
+          .filter(p => Array.isArray(p) && p.length === 2)
+          .map(([k, v]) => [String(k), String(v)])
+          .filter(([k]) => k !== 'pwa');
+        navigate(String(msg.method).toUpperCase() === 'POST' ? 'POST' : 'GET', fields);
+      }
+    });
+
+    frame.addEventListener('load', () => {
+      if (!frame.getAttribute('src') && firstLoad && !frame.dataset.started) return;
+      clearTimeout(loadTimer);
+      busy.classList.remove('is-active');
+      if (firstLoad) {
+        firstLoad = false;
+        splash.classList.add('is-hidden');
+      }
+    });
+
+    function showError(text) {
+      document.getElementById('splashSpinner').style.display = 'none';
+      document.getElementById('splashMsg').innerHTML =
+        text + '<br><button type="button" onclick="location.reload()">다시 시도</button>';
+      splash.classList.remove('is-hidden');
+    }
+
+    function start() {
+      if (!navigator.onLine) {
+        showError('인터넷에 연결되어 있지 않습니다.');
+        window.addEventListener('online', () => location.reload(), { once: true });
+        return;
+      }
+      frame.dataset.started = '1';
+      startLoading();
+      frame.src = buildUrl([]);
+    }
+    start();
+
+    // ================== 오프라인 캐시(서비스 워커) ==================
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      });
+    }
+
+    // ================== 홈 화면에 설치 안내 ==================
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const installBar = document.getElementById('installBar');
+    const installText = document.getElementById('installText');
+    const btnInstall = document.getElementById('btnInstall');
+    const DISMISS_KEY = 'gl_install_dismissed';
+    let deferredPrompt = null;
+
+    function dismissed() {
+      try { return Date.now() - Number(localStorage.getItem(DISMISS_KEY) || 0) < 7 * 24 * 3600 * 1000; }
+      catch (e) { return false; }
+    }
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      if (isStandalone || dismissed()) return;
+      installText.innerHTML = '<b>앱으로 설치하기</b>홈 화면/바탕화면에서 바로 열 수 있어요.';
+      btnInstall.style.display = '';
+      installBar.classList.add('is-active');
+    });
+
+    btnInstall.addEventListener('click', async () => {
+      installBar.classList.remove('is-active');
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      try { await deferredPrompt.userChoice; } catch (e) {}
+      deferredPrompt = null;
+    });
+
+    document.getElementById('btnInstallClose').addEventListener('click', () => {
+      installBar.classList.remove('is-active');
+      try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch (e) {}
+    });
+
+    window.addEventListener('appinstalled', () => installBar.classList.remove('is-active'));
+
+    // 아이폰/아이패드는 설치 버튼이 없어서 사파리 "공유 → 홈 화면에 추가" 방법을 안내한다
+    if (isIos && !isStandalone && !dismissed()) {
+      setTimeout(() => {
+        installText.innerHTML = '<b>홈 화면에 추가</b>사파리 아래 <b style="display:inline">공유 ⬆︎</b> → <b style="display:inline">홈 화면에 추가</b>를 누르세요.';
+        btnInstall.style.display = 'none';
+        installBar.classList.add('is-active');
+      }, 2500);
+    }
+  </script>
+</body>
+</html>
